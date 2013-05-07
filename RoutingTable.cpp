@@ -38,7 +38,8 @@ void RoutingTable::routingTableMain(void)
 {
 
 	//add the local AS into the raw and routing tables
-	m_headOfRawTable = createNewRoute(m_RTConfig->getIPAsString(), m_RTConfig->getIPMaskAsString(), m_RTConfig->getASNumberAsString(), m_RTConfig->getNumberOfInterfaces()-1);
+	m_headOfRawTable = new Route();
+
 
 	m_endOfRawTable = m_headOfRawTable;
 
@@ -46,7 +47,11 @@ void RoutingTable::routingTableMain(void)
 
 	m_headOfRoutingTable = new Route();
 	m_endOfRoutingTable = new Route();
-	setRoute(*m_headOfRawTable);
+	string l_LocalRoute = "1," + m_RTConfig->getIPAsString() + "," + m_RTConfig->getIPMaskAsString();
+
+	cout << name() << ": Local AS interface: " << m_RTConfig->getNumberOfInterfaces()-1 << endl;
+	addRouteToRawTable( l_LocalRoute, m_RTConfig->getNumberOfInterfaces()-1);
+	updateRoutingTable();
 	StringTools *l_Report = new StringTools(name());
 
 	//debugging
@@ -135,7 +140,7 @@ void RoutingTable::routingTableMain(void)
 		{
 			m_ReceivingBuffer.read(m_BGPMsg);
 
-			if(m_BGPMsg.m_Type == UPDATE || m_BGPMsg.m_Type == NOTIFICATION)
+			if(m_BGPMsg.m_Type == UPDATE)
 				m_NewInputMsg = true;
 			else
 				m_NewInputMsg = false;
@@ -154,12 +159,14 @@ void RoutingTable::routingTableMain(void)
 
 			if(m_BGPMsg.m_Message.substr(0,1) == "0")
 			{
+				cout << name() << ": session " << m_BGPMsg.m_OutboundInterface << " received withdraw string: " << m_BGPMsg.m_Message << " @ " << sc_time_stamp() << endl;
 				// First char was 0, so this is a withdraw-message
 				handleWithdraw(m_BGPMsg.m_Message);
 			}
 			else if(m_BGPMsg.m_Message.substr(0,1) == "1")
 			{
 
+				cout << name() << ": session " << m_BGPMsg.m_OutboundInterface << " received update string: " << m_BGPMsg.m_Message << " @ " << sc_time_stamp() << endl;
 				// This is an advertise-message. Add it to own RawTable, add own AS in AS-path and then forward the message to peers
 				//      antti oti pois kun buffaa muistia
 				addRouteToRawTable(m_BGPMsg.m_Message,m_BGPMsg.m_OutboundInterface);
@@ -168,6 +175,7 @@ void RoutingTable::routingTableMain(void)
 			}
 			else
 			{
+				cout << name() << ": session " << m_BGPMsg.m_OutboundInterface << " received unknown string: " << m_BGPMsg.m_Message << " @ " << sc_time_stamp() << endl;
 				// Message was incorrectly constructed. Send NOTIFICATION
 			}
 			/*
@@ -179,11 +187,6 @@ void RoutingTable::routingTableMain(void)
                 cout << "Main table: " << endl;
                 printRoutingTable();
 			 */
-		}
-		else if(m_BGPMsg.m_Type == NOTIFICATION && m_NewInputMsg)
-		{
-			cout << "In notification handling" << endl;
-			handleNotification(m_BGPMsg);
 		}
 	}
 }
@@ -293,13 +296,13 @@ int RoutingTable::ASpathLength(Route p_route)
 void RoutingTable::setRoute(Route p_route)
 {
 	Route * newRoute = new Route();
-	cout << "Here" << endl;
 
 	newRoute->id = (m_endOfRoutingTable->id)+1;
 	newRoute->prefix = p_route.prefix;
 	newRoute->mask = p_route.mask;
 	newRoute->OutputPort = p_route.OutputPort;
 	newRoute->ASes = p_route.ASes;
+	cout << name() << ": ASes: " << newRoute->ASes << endl;
 
 
 	if(m_headOfRoutingTable->next == 0)
@@ -448,7 +451,7 @@ string RoutingTable::routeToString(Route p_route)
 {
 	stringstream ss;
 	ss.str("");
-	ss << p_route.id  << "," << p_route.prefix << "," << p_route.mask << "," << p_route.ASes;
+	ss << p_route.id  << "," << p_route.prefix << "," << p_route.mask << "," << p_route.ASes << "," << p_route.OutputPort;
 	return ss.str();
 }
 
@@ -456,7 +459,7 @@ string RoutingTable::routeToUpdate(Route p_route)
 {
 	stringstream ss;
 	ss.str("");
-	ss << "1," << p_route.prefix << "," << p_route.mask << "," << p_route.ASes;
+	ss << "1,"<< p_route.id  << ","  << p_route.prefix << "," << p_route.mask << "," << p_route.ASes;
 	return ss.str();
 }
 
@@ -551,8 +554,7 @@ void RoutingTable::createRoute(string p_msg,int p_outputPort ,Route * p_route)
 {
 	// Use these to collect data separetad by semicolon
 	int position = 2;
-	int IP_end,Mask_end, ASes_end;
-
+	unsigned IP_end,Mask_end, ASes_end;
 	for(int i=0;i<3;i++)
 	{
 		position = p_msg.find(",",position+1);
@@ -561,19 +563,27 @@ void RoutingTable::createRoute(string p_msg,int p_outputPort ,Route * p_route)
 		else if(i==1)
 			Mask_end = position;
 		else if(i==2)
-			ASes_end = position;
+		{
+				ASes_end = position;
+		}
 	}
 
 	string IPAddress = p_msg.substr(2,IP_end-2);
 	string Mask = p_msg.substr((IP_end+1),(Mask_end-IP_end-1));  // -1 to remove ";"-sign
-	string ASes = p_msg.substr((Mask_end+1),(ASes_end-Mask_end-1));
 
-	// Add own AS in AS-path
-	ASes.append("-");
 	stringstream ss;
 	ss << m_RTConfig->getASNumber();
-	ASes.append(ss.str());
+	string ASes;
+	if(ASes_end != string::npos)
+	{
+		ASes = p_msg.substr((Mask_end+1),(ASes_end-Mask_end-1));
+		// Add own AS in AS-path
+		ASes.append("-");
 
+		ASes.append(ss.str());
+	}
+	else
+		ASes = ss.str();
 
 	// Set the values to Route pointer
 	p_route->prefix = IPAddress;
@@ -833,19 +843,21 @@ Route * RoutingTable::findRoute(string p_prefix)
  */
 void RoutingTable::newSession(int p_PeeringInterface)
 {
-
+	int count = 0, count2 = 0;
 	m_iterator = m_headOfRoutingTable;
 
 	//advertise all the routes of other interfaces than the peering interface to the new session
 	while(m_iterator->next != 0)
 	{
+		count ++;
 		if(p_PeeringInterface != m_iterator->OutputPort)
 		{
+			count2++;
 			advertiseRoute(m_iterator, p_PeeringInterface);
 		}
 		m_iterator = m_iterator->next;
 	}
-
+	cout << name() << ": routes in the table: " << count << ", Routes advertised: " << count2 << endl;
 }
 
 // Return how many "bits" from prefix match with IP address.
@@ -905,7 +917,9 @@ void RoutingTable::advertiseRoute(Route *p_route, int p_PeeringInterface)
 	m_UpdateOut.m_Type = UPDATE;
 	m_UpdateOut.m_BGPIdentifier = m_RTConfig->getBGPIdentifier();
 	m_UpdateOut.m_OutboundInterface = p_PeeringInterface;
+
 	m_UpdateOut.m_Message = routeToUpdate(*p_route);
+	cout << name() << ": advertising a route: " << m_UpdateOut.m_Message << " @ " << sc_time_stamp() << endl;
 	port_Output->write(m_UpdateOut);
 
 }

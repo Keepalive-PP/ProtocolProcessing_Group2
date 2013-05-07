@@ -384,29 +384,34 @@ void BGPSession::fsmRoutine(void)
 					//verify that the message is for this session and that it is not a duplicate
 					if(m_BGPIn.m_OutboundInterface == m_PeeringInterface && m_NewFsmInput)
 					{
-						//reset hold-down timer
-						resetHoldDown();
+
 						//send updates to RT
 						if(m_BGPIn.m_Type == UPDATE)
 						{
 							port_ToRoutingTable->write(m_BGPIn);
-
+							//reset hold-down timer
+							resetHoldDown();
 						}
 						//transition to IDLE state in case of notification
 						else if(m_BGPIn.m_Type == NOTIFICATION)
 						{
-							port_ToRoutingTable->write(m_BGPIn);
 							setBGPCurrentState(IDLE);
+						}
+						else if(m_BGPIn.m_Type == KEEPALIVE)
+						{
+							//reset hold-down timer
+							resetHoldDown();
 						}
 						//in any other case send a notificaton to the peer and transition to the IDLE state
 						else
 						{
-//							m_BGPOut.m_Type = NOTIFICATION;
-//							m_BGPOut.m_BGPIdentifier = m_Config->getBGPIdentifier();
-//							m_BGPOut.m_AS = m_Config->getASNumber();
-//							m_BGPOut.m_OutboundInterface = m_PeeringInterface;
-//							port_ToDataPlane->write(m_BGPOut);
-//							setBGPCurrentState(IDLE);
+							cout << name() << ": unknown message received: " << m_BGPIn.m_Type << endl;
+							m_BGPOut.m_Type = NOTIFICATION;
+							m_BGPOut.m_BGPIdentifier = m_Config->getBGPIdentifier();
+							m_BGPOut.m_AS = m_Config->getASNumber();
+							m_BGPOut.m_OutboundInterface = m_PeeringInterface;
+							port_ToDataPlane->write(m_BGPOut);
+							setBGPCurrentState(IDLE);
 						}
 					}
 
