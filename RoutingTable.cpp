@@ -17,14 +17,14 @@
 
 
 
-RoutingTable::RoutingTable(sc_module_name p_ModName, ControlPlaneConfig * const p_RTConfig):sc_module(p_ModName), m_RTConfig(p_RTConfig)
+RoutingTable::RoutingTable(sc_module_name p_ModName, ControlPlaneConfig * const p_RTConfig):sc_module(p_ModName), m_RTConfig(p_RTConfig), m_NewInputMsg(false)
 {
 
 
-    //buffer's input
+	//buffer's input
 
-    SC_THREAD(routingTableMain);
-    sensitive << port_Clk.pos();
+	SC_THREAD(routingTableMain);
+	sensitive << port_Clk.pos();
 }
 
 RoutingTable::~RoutingTable()
@@ -36,32 +36,36 @@ RoutingTable::~RoutingTable()
 
 void RoutingTable::routingTableMain(void)
 {
-    m_headOfRawTable = new Route();
-    m_endOfRawTable = new Route();
-    m_iterator = new Route();
 
-    m_headOfRoutingTable = new Route();
-    m_endOfRoutingTable = new Route();
+	//add the local AS into the raw and routing tables
+	m_headOfRawTable = createNewRoute(m_RTConfig->getIPAsString(), m_RTConfig->getIPMaskAsString(), m_RTConfig->getASNumberAsString(), m_RTConfig->getNumberOfInterfaces()-1);
 
-    StringTools *l_Report = new StringTools(name());
+	m_endOfRawTable = m_headOfRawTable;
 
-    //debugging
-    SC_REPORT_INFO(g_ReportID, l_Report->newReportString("starting") );
+	m_iterator = new Route();
 
-    fillRoutingTable(); // IIRO testing
+	m_headOfRoutingTable = new Route();
+	m_endOfRoutingTable = new Route();
+	setRoute(*m_headOfRawTable);
+	StringTools *l_Report = new StringTools(name());
 
-    // Initialize m_sessions
-    for(int i = 0; i < m_RTConfig->getNumberOfInterfaces()-1;i++)
-        m_sessions.push_back(0);
+	//debugging
+	SC_REPORT_INFO(g_ReportID, l_Report->newReportString("starting") );
+
+	//fillRoutingTable(); // IIRO testing
+
+	// Initialize m_sessions
+	for(int i = 0; i < m_RTConfig->getNumberOfInterfaces()-1;i++)
+		m_sessions.push_back(0);
 
 
-    int count = 0;
-    //The main thread of routing table module starts
-    while(true)
-        {
-            wait();
 
-            /*
+	//The main thread of routing table module starts
+	while(true)
+	{
+		wait();
+
+		/*
             Check if some of the sessions has gone up or down
             session up - was it up before?
                 Case 1. yes -> do nothing
@@ -69,90 +73,104 @@ void RoutingTable::routingTableMain(void)
             session down - was it down before?
                 Case 3. yes -> do nothing
                 Case 4. no -> remove from RTs and send withdraws
-            */
+		 */
 
-            // First check is there new sessions and add them if so
-            if((unsigned)m_RTConfig->getNumberOfInterfaces()-1 > m_sessions.size())
-            {
-                int numberOfNewSessions = m_RTConfig->getNumberOfInterfaces() - 1 - m_sessions.size();
-                for(int i = 0; i < numberOfNewSessions; i++)
-                    m_sessions.push_back(0);
-            }
-            for (int i = 0; i < m_RTConfig->getNumberOfInterfaces()-1; i++)
-                {
-					// cout<< name() << " ----    ----  Session " << i << " has AS number: " << port_Session[i]->getPeerAS()  << " and identifier: "<< port_Session[i]->getPeerIdentifier() << endl;
-                   if(port_Session[i]->isSessionValid())
-                    {
-                        if(m_sessions.at(i) == 1)   // Case 1
-                            continue;
-                        else if(m_sessions.at(i) == 0) // Case 2
-                            {
-                                // Change this session's state in m_sessions
-                                m_sessions.at(i) = 0;
-                                // Get RT from this new PEER
-                            }
-                    }
-                    else if(port_Session[i]->isSessionValid())
-                    {
-                        if(m_sessions.at(i) == 0)   // Case 3
-                            continue;
-                        else if(m_sessions.at(i) == 1) // Case 4
-                        {
-                            m_sessions.at(i) = 1;
-                            // Iterate through the RawTable and send withdraw message to peers if route's outputport is i
-                            m_iterator = m_headOfRawTable;
-                            while(m_iterator->next != 0)
-                            {
-                                if(m_iterator->OutputPort == i)
-                                    sendWithdraw(*m_iterator);
-                            }
+		// First check is there new sessions and add them if so
+		if((unsigned)m_RTConfig->getNumberOfInterfaces()-1 > m_sessions.size())
+		{
+			int numberOfNewSessions = m_RTConfig->getNumberOfInterfaces() - 1 - m_sessions.size();
+			for(int i = 0; i < numberOfNewSessions; i++)
+				m_sessions.push_back(0);
+		}
 
-                            // Remove all the router from RawRoutingTable where outputport is i.
-                            deleteRoutes(i);
+		for (int i = 0; i < m_RTConfig->getNumberOfInterfaces()-1; i++)
+		{
+			// cout<< name() << " ----    ----  Session " << i << " has AS number: " << port_Session[i]->getPeerAS()  << " and identifier: "<< port_Session[i]->getPeerIdentifier() << endl;
+			if(port_Session[i]->isSessionValid())
+			{
+				if(m_sessions.at(i) == 1)   // Case 1
+					continue;
+				else if(m_sessions.at(i) == 0) // Case 2
+				{
+					cout << name() << ": session " << i << " became valid @ " << sc_time_stamp() << endl;
+					// Change this session's state in m_sessions
+					m_sessions.at(i) = 1;
+					// Get RT from this new PEER
+					//TODO:send update message to the new session peer
 
-                        }
+					//build update message and send it to the new peer
+					newSession(port_Session[i]->getPeeringInterface());
 
-                    }
-                }
+				}
+			}
 
+			else if(!port_Session[i]->isSessionValid())
+			{
+				if(m_sessions.at(i) == 0)   // Case 3
+					continue;
+				else if(m_sessions.at(i) == 1) // Case 4
+				{
+					cout << name() << ": session " << i << " became invalid @ " << sc_time_stamp() << endl;
+					m_sessions.at(i) = 1;
+					// Iterate through the RawTable and send withdraw message to peers if route's outputport is i
+					m_iterator = m_headOfRawTable;
+					while(m_iterator->next != 0)
+					{
+						if(m_iterator->OutputPort == i)
+							sendWithdraw(*m_iterator);
+					}
 
+					// Remove all the router from RawRoutingTable where outputport is i.
+					deleteRoutes(i);
 
+				}
 
-
-            m_ReceivingBuffer.read(m_BGPMsg);
-            if(!(count%20))
-                {
-                    l_Report->newReportString("Received BGP message from CP with outbound interface set to ");
-                    SC_REPORT_INFO(g_DebugID, l_Report->appendReportString(m_BGPMsg.m_OutboundInterface) );
-                }
-            count++;
-
-            ///BGP notification and update output port
-            // port_Output->write(m_BGPMsg);
+			}
+		}
 
 
-            if((m_BGPMsg.m_Type = UPDATE))
-            {
 
-                // Read the first integer of the m_BGPMsg.m_Message. That indicates if this UPDATE-message is an advertise or a withdraw
 
-                if(m_BGPMsg.m_Message.substr(0,1) == "0")
-                {
-                    // First char was 0, so this is a withdraw-message
-                    handleWithdraw(m_BGPMsg.m_Message);
-                }
-                else if(m_BGPMsg.m_Message.substr(0,1) == "1")
-                {
+		if(m_ReceivingBuffer.num_available() > 0)
+		{
+			m_ReceivingBuffer.read(m_BGPMsg);
 
-                    // This is an advertise-message. Add it to own RawTable, add own AS in AS-path and then forward the message to peers
-                    //      antti oti pois kun buffaa muistia              addRouteToRawTable(m_BGPMsg.m_Message,m_BGPMsg.m_OutboundInterface);
-                    //      antti oti pois kun buffaa muistia              advertiseRoute(m_endOfRawTable);
-                }
-                else
-                {
-                    // Message was incorrectly constructed. Send NOTIFICATION
-                }
-/*
+			if(m_BGPMsg.m_Type == UPDATE || m_BGPMsg.m_Type == NOTIFICATION)
+				m_NewInputMsg = true;
+			else
+				m_NewInputMsg = false;
+		}
+		else
+			m_NewInputMsg = false;
+
+		///BGP notification and update output port
+		// port_Output->write(m_BGPMsg);
+
+
+		if((m_BGPMsg.m_Type = UPDATE) && m_NewInputMsg)
+		{
+
+			// Read the first integer of the m_BGPMsg.m_Message. That indicates if this UPDATE-message is an advertise or a withdraw
+
+			if(m_BGPMsg.m_Message.substr(0,1) == "0")
+			{
+				// First char was 0, so this is a withdraw-message
+				handleWithdraw(m_BGPMsg.m_Message);
+			}
+			else if(m_BGPMsg.m_Message.substr(0,1) == "1")
+			{
+
+				// This is an advertise-message. Add it to own RawTable, add own AS in AS-path and then forward the message to peers
+				//      antti oti pois kun buffaa muistia
+				addRouteToRawTable(m_BGPMsg.m_Message,m_BGPMsg.m_OutboundInterface);
+				//      antti oti pois kun buffaa muistia
+				//advertiseRoute(m_endOfRawTable, m_BGPMsg.m_OutboundInterface);
+			}
+			else
+			{
+				// Message was incorrectly constructed. Send NOTIFICATION
+			}
+			/*
                 updateRoutingTable();
 
                 cout << "Raw table: " << endl;
@@ -160,14 +178,14 @@ void RoutingTable::routingTableMain(void)
 
                 cout << "Main table: " << endl;
                 printRoutingTable();
-                */
-            }
-            else if(m_BGPMsg.m_Type == NOTIFICATION)
-            {
-                cout << "In notification handling" << endl;
-                handleNotification(m_BGPMsg);
-            }
-        }
+			 */
+		}
+		else if(m_BGPMsg.m_Type == NOTIFICATION && m_NewInputMsg)
+		{
+			cout << "In notification handling" << endl;
+			handleNotification(m_BGPMsg);
+		}
+	}
 }
 
 /*
@@ -175,77 +193,77 @@ void RoutingTable::routingTableMain(void)
     When same route is found from both tables check which one is preferred and update that to MainRoutingTable.
 
     2. Iterate through MainRT and verify that there isn't any route that doesn't exist in RawRT.
-*/
+ */
 void RoutingTable::updateRoutingTable()
 {
-    // 1. Verify that every route in RawRT is found from MainRT
-    Route * l_iteratorRaw = m_headOfRawTable;
+	// 1. Verify that every route in RawRT is found from MainRT
+	Route * l_iteratorRaw = m_headOfRawTable;
 
-    bool l_routeInBothTables;   // Used to check that every route in RawTable exists in MainRoutingTable
+	bool l_routeInBothTables;   // Used to check that every route in RawTable exists in MainRoutingTable
 
-/*
+	/*
     if(m_headOfRoutingTable->next == 0)
         setRoute(m_headOfRawTable->next);
-*/
-    // Iterate RawTable
-    while(l_iteratorRaw->next != 0)
-    {
-        l_iteratorRaw = l_iteratorRaw->next;
+	 */
+	// Iterate RawTable
+	while(l_iteratorRaw->next != 0)
+	{
+		l_iteratorRaw = l_iteratorRaw->next;
 
-        m_iterator = m_headOfRoutingTable;
-        l_routeInBothTables = false;
+		m_iterator = m_headOfRoutingTable;
+		l_routeInBothTables = false;
 
-        // Iterate MainRoutingTable
-        while(m_iterator->next != 0)
-        {
-            m_iterator= m_iterator->next;
-            // Check if RawTable route has the same Prefix&Mask than current MainRoutingTable route
-            if(sameRoutes(*m_iterator, *l_iteratorRaw))
-            {
-                // Same Prefix&Mask combination was found from both tables. Check which route is preferred
-                // Only one match in mainRT, so no need to continue iterating mainRT --> break inner while-loop
-                addPreferredRoute(*m_iterator, *l_iteratorRaw);
-                l_routeInBothTables = true;
-                break;
-            }
-        }
-        // Check that RawRoute was found from MainRoutingTable
-        if(!l_routeInBothTables)
-        {
-            setRoute(*l_iteratorRaw);
-        }
+		// Iterate MainRoutingTable
+		while(m_iterator->next != 0)
+		{
+			m_iterator= m_iterator->next;
+			// Check if RawTable route has the same Prefix&Mask than current MainRoutingTable route
+			if(sameRoutes(*m_iterator, *l_iteratorRaw))
+			{
+				// Same Prefix&Mask combination was found from both tables. Check which route is preferred
+				// Only one match in mainRT, so no need to continue iterating mainRT --> break inner while-loop
+				addPreferredRoute(*m_iterator, *l_iteratorRaw);
+				l_routeInBothTables = true;
+				break;
+			}
+		}
+		// Check that RawRoute was found from MainRoutingTable
+		if(!l_routeInBothTables)
+		{
+			setRoute(*l_iteratorRaw);
+		}
 
-    }
+	}
 
-    // 2. Now verify that every route in MainRT is also found from RawRT
-    l_iteratorRaw = m_headOfRawTable;
-    m_iterator = m_headOfRoutingTable;
+	// 2. Now verify that every route in MainRT is also found from RawRT
+	l_iteratorRaw = m_headOfRawTable;
+	m_iterator = m_headOfRoutingTable;
 
-    // Iterate MainRT
-    bool foundFromRawTable;
-    while(m_iterator->next != 0)
-    {
-        l_iteratorRaw = m_headOfRawTable;
-        foundFromRawTable = false;
-        m_iterator = m_iterator->next;
+	// Iterate MainRT
+	bool foundFromRawTable;
+	while(m_iterator->next != 0)
+	{
+		l_iteratorRaw = m_headOfRawTable;
+		foundFromRawTable = false;
+		m_iterator = m_iterator->next;
 
-        // Iterate RawRT
-        while(l_iteratorRaw->next != 0)
-        {
+		// Iterate RawRT
+		while(l_iteratorRaw->next != 0)
+		{
 
-            l_iteratorRaw = l_iteratorRaw->next;
-            if(sameRoutes(*m_iterator,*l_iteratorRaw))
-            {
-                foundFromRawTable = true;
-                break;
-            }
-        }
-        if(!foundFromRawTable)
-        {
-            // Route didin't exist in RawRT so remove it from MainTable
-            removeFromRoutingTable(m_iterator->id);
-        }
-    }
+			l_iteratorRaw = l_iteratorRaw->next;
+			if(sameRoutes(*m_iterator,*l_iteratorRaw))
+			{
+				foundFromRawTable = true;
+				break;
+			}
+		}
+		if(!foundFromRawTable)
+		{
+			// Route didin't exist in RawRT so remove it from MainTable
+			removeFromRoutingTable(m_iterator->id);
+		}
+	}
 
 
 
@@ -253,51 +271,54 @@ void RoutingTable::updateRoutingTable()
 
 /*
     Compare two routes and return true if they are the same
-*/
+ */
 bool RoutingTable::sameRoutes(Route p_route1, Route p_route2)
 {
-    if(p_route1.prefix == p_route2.prefix && p_route1.mask == p_route2.mask)
-        return true;
-    else
-        return false;
+	if(p_route1.prefix == p_route2.prefix && p_route1.mask == p_route2.mask)
+		return true;
+	else
+		return false;
 }
 
 // Return the AS Path length
 int RoutingTable::ASpathLength(Route p_route)
 {
-    int ASCount = count(p_route.ASes.begin(), p_route.ASes.end(), '-') + 1;
-    return ASCount;
+	int ASCount = count(p_route.ASes.begin(), p_route.ASes.end(), '-') + 1;
+	return ASCount;
 }
 
 /*
     Add new route to MainRoutingTable
-*/
+ */
 void RoutingTable::setRoute(Route p_route)
 {
-    Route * newRoute = new Route();
+	Route * newRoute = new Route();
+	cout << "Here" << endl;
 
-    newRoute->id = (m_endOfRoutingTable->id)+1;
-    newRoute->prefix = p_route.prefix;
-    newRoute->mask = p_route.mask;
-    newRoute->OutputPort = p_route.OutputPort;
-    newRoute->ASes = p_route.ASes;
+	newRoute->id = (m_endOfRoutingTable->id)+1;
+	newRoute->prefix = p_route.prefix;
+	newRoute->mask = p_route.mask;
+	newRoute->OutputPort = p_route.OutputPort;
+	newRoute->ASes = p_route.ASes;
 
 
-    if(m_headOfRoutingTable->next == 0)
-    {
-        // RoutingTable is empty. So add the first Route in it
-        m_headOfRoutingTable->next = newRoute;
-        m_endOfRoutingTable = newRoute;
-        newRoute->next = 0;
-    }
-    else
-    {
-        // RoutingTable wasn't empty
-        m_endOfRoutingTable->next = newRoute;
-        m_endOfRoutingTable = newRoute;
-        newRoute->next = 0;
-    }
+	if(m_headOfRoutingTable->next == 0)
+	{
+		// RoutingTable is empty. So add the first Route in it
+		m_headOfRoutingTable->next = newRoute;
+		m_endOfRoutingTable = newRoute;
+		newRoute->next = 0;
+	}
+	else
+	{
+		// RoutingTable wasn't empty
+		m_endOfRoutingTable->next = newRoute;
+		m_endOfRoutingTable = newRoute;
+		newRoute->next = 0;
+	}
 }
+
+
 
 /*
     Take two routes as a parameter, check which one is preferred and
@@ -305,605 +326,671 @@ void RoutingTable::setRoute(Route p_route)
     Which route is preferred is decided by policies.
     p_route1 is already in MainRoutingTable, so do nothing if that route is preferred over p_route2.
 
-*/
+ */
 void RoutingTable::addPreferredRoute(Route p_route1, Route p_route2)
 {
-    /*
+	/*
         Add preferred route to routing table according to policies. Policies:
         1. Check if which route has higher preferredAS
         2. Check AS-path length
         3. Origin type, not used?
 
-    */
+	 */
 
-    /*  1. TODO: only picks up the highes value. What if p_route1 and p_route2 have same highest value but different 2. highest value?
+	/*  1. TODO: only picks up the highes value. What if p_route1 and p_route2 have same highest value but different 2. highest value?
         Solution: calculate sum instead of the highest value?
-    */
-    int route1_highest_pref = 0;
-    int route2_highest_pref = 0;
-    int AS;
-    unsigned newPosition = 0;
-    unsigned oldPosition = 0;
+	 */
+	int route1_highest_pref = 0;
+	int route2_highest_pref = 0;
+	int AS;
+	unsigned newPosition = 0;
+	unsigned oldPosition = 0;
 
-    // 1. Iterate through preferredASes and check if other Route has preferred AS on its ASpath
-    for(unsigned i = 0;i<preferredASes.size();i = i+2)
-    {
-        while(newPosition < p_route1.ASes.size())
-        {
-            newPosition = p_route1.ASes.find("-",oldPosition+1);
-            AS =  atoi((p_route1.ASes.substr(oldPosition,newPosition-oldPosition)).c_str());
-            oldPosition = newPosition+1;
+	// 1. Iterate through preferredASes and check if other Route has preferred AS on its ASpath
+	for(unsigned i = 0;i<preferredASes.size();i = i+2)
+	{
+		while(newPosition < p_route1.ASes.size())
+		{
+			newPosition = p_route1.ASes.find("-",oldPosition+1);
+			AS =  atoi((p_route1.ASes.substr(oldPosition,newPosition-oldPosition)).c_str());
+			oldPosition = newPosition+1;
 
-            if(AS == preferredASes.at(i))
-            {
-                if(route1_highest_pref < preferredASes.at(i+1))
-                    route1_highest_pref = preferredASes.at(i+1);
-            }
-        }
-        newPosition = 0;
-        oldPosition = 0;
-
-
-        while(newPosition < p_route2.ASes.size())
-        {
-
-            newPosition = p_route2.ASes.find("-",oldPosition+1);
-            AS =  atoi((p_route2.ASes.substr(oldPosition,newPosition-oldPosition)).c_str());
-            oldPosition = newPosition+1;
-
-            if(AS == preferredASes.at(i))
-            {
-                if(route2_highest_pref < preferredASes.at(i+1))
-                    route2_highest_pref = preferredASes.at(i+1);
-            }
-        }
-    }
+			if(AS == preferredASes.at(i))
+			{
+				if(route1_highest_pref < preferredASes.at(i+1))
+					route1_highest_pref = preferredASes.at(i+1);
+			}
+		}
+		newPosition = 0;
+		oldPosition = 0;
 
 
+		while(newPosition < p_route2.ASes.size())
+		{
 
-    if(route2_highest_pref > route1_highest_pref)
-    {
-        // p_route2 was preferred over p_route1. So remove p_route1 from MainRoutingTable and replace it by p_route2
-        removeFromRoutingTable(p_route1.id);
-        setRoute(p_route2);
-        return;
-    }
+			newPosition = p_route2.ASes.find("-",oldPosition+1);
+			AS =  atoi((p_route2.ASes.substr(oldPosition,newPosition-oldPosition)).c_str());
+			oldPosition = newPosition+1;
 
-    // 2. AS-path length
-    if(ASpathLength(p_route1) < ASpathLength(p_route2))
-    {
-        // p_route2 had shorter AS-path, so replace p_route1
-        removeFromRoutingTable(p_route1.id);
-        setRoute(p_route2);
-        return;
-    }
+			if(AS == preferredASes.at(i))
+			{
+				if(route2_highest_pref < preferredASes.at(i+1))
+					route2_highest_pref = preferredASes.at(i+1);
+			}
+		}
+	}
+
+
+
+	if(route2_highest_pref > route1_highest_pref)
+	{
+		// p_route2 was preferred over p_route1. So remove p_route1 from MainRoutingTable and replace it by p_route2
+		removeFromRoutingTable(p_route1.id);
+		setRoute(p_route2);
+		return;
+	}
+
+	// 2. AS-path length
+	if(ASpathLength(p_route1) < ASpathLength(p_route2))
+	{
+		// p_route2 had shorter AS-path, so replace p_route1
+		removeFromRoutingTable(p_route1.id);
+		setRoute(p_route2);
+		return;
+	}
 
 
 }
 
 /*
     Return MainRoutingTable
-*/
+ */
 string RoutingTable::getRoutingTable()
 {
-    return routingTableToString(m_headOfRoutingTable);
+	return routingTableToString(m_headOfRoutingTable);
 }
 
 /*
     Return RawRoutingTable
-*/
+ */
 string RoutingTable::getRawRoutingTable()
 {
-    return routingTableToString(m_headOfRawTable);
+	return routingTableToString(m_headOfRawTable);
 }
 
 
 /*
     Iterate through the routing table, beginning from p_route.
     Create a string from the routes and return that string.
-*/
+ */
 string RoutingTable::routingTableToString(Route * p_route)
 {
-    m_iterator = p_route;
-    string table;
-    table.append("<TABLE>");
+	m_iterator = p_route;
+	string table;
+	table.append("<TABLE>");
 
-    while(m_iterator->next != 0)
-    {
-        m_iterator = m_iterator->next;
-        table.append(routeToString(*m_iterator));
-        table.append(";");
-    }
-    table.append("</TABLE>");
+	while(m_iterator->next != 0)
+	{
+		m_iterator = m_iterator->next;
+		table.append(routeToString(*m_iterator));
+		table.append(";");
+	}
+	table.append("</TABLE>");
 
-    return table;
+	return table;
 }
 
 /*
     Create string from given route. Prefix, Mask, Routers and ASes are included in the string.
     Syntax: ID,Prefix,Mask,ASes (e.g. 5,100100200050,8,100-4212-231-22)
-*/
+ */
 string RoutingTable::routeToString(Route p_route)
 {
-    stringstream ss;
-    ss.str("");
-    ss << p_route.id  << "," << p_route.prefix << "," << p_route.mask << "," << p_route.ASes;
-    return ss.str();
+	stringstream ss;
+	ss.str("");
+	ss << p_route.id  << "," << p_route.prefix << "," << p_route.mask << "," << p_route.ASes;
+	return ss.str();
+}
+
+string RoutingTable::routeToUpdate(Route p_route)
+{
+	stringstream ss;
+	ss.str("");
+	ss << "1," << p_route.prefix << "," << p_route.mask << "," << p_route.ASes;
+	return ss.str();
 }
 
 
 // Print the RoutingTable
 void RoutingTable::printRoutingTable()
 {
-    // Set the iterator in the beginning of table
-    m_iterator = m_headOfRoutingTable;
+	// Set the iterator in the beginning of table
+	m_iterator = m_headOfRoutingTable;
 
-    while(m_iterator->next != 0)
-    {
-        m_iterator = m_iterator->next;
-        printOneRoute(*m_iterator);
-    }
+	while(m_iterator->next != 0)
+	{
+		m_iterator = m_iterator->next;
+		printOneRoute(*m_iterator);
+	}
 
 }
 
 // Print the RawRoutingTable
 void RoutingTable::printRawRoutingTable()
 {
-    // Set the iterator in the beginning of table
-    m_iterator = m_headOfRawTable;
+	// Set the iterator in the beginning of table
+	m_iterator = m_headOfRawTable;
 
-    while(m_iterator->next != 0)
-    {
-        m_iterator = m_iterator->next;
-        printOneRoute(*m_iterator);
-    }
+	while(m_iterator->next != 0)
+	{
+		m_iterator = m_iterator->next;
+		printOneRoute(*m_iterator);
+	}
 
 }
 
 
 void RoutingTable::printOneRoute(Route p_route)
 {
-    stringstream ss;
-    ss << "Id:" << p_route.id <<" Prefix: " <<  p_route.prefix << " Mask: " <<  p_route.mask << " Output port: " << p_route.OutputPort << " ASes: " << p_route.ASes;
-    string message = ss.str();
-    cout << message << endl;
+	stringstream ss;
+	ss << "Id:" << p_route.id <<" Prefix: " <<  p_route.prefix << " Mask: " <<  p_route.mask << " Output port: " << p_route.OutputPort << " ASes: " << p_route.ASes;
+	string message = ss.str();
+	cout << message << endl;
 }
 
 /*
     Add new route to RawRoutingTable
-*/
+ */
 void RoutingTable::addRouteToRawTable(string p_msg,int OutputPort)
 {
-    Route * newRoute = new Route();
+	Route * newRoute = new Route();
 
-    // Get ID for this new route
-    newRoute->id = (m_endOfRawTable->id)+1;
+	// Get ID for this new route
+	newRoute->id = (m_endOfRawTable->id)+1;
 
-    // Set data to newRoute in CreateRoute(...)
-    createRoute(p_msg,OutputPort,newRoute);
+	// Set data to newRoute in CreateRoute(...)
+	createRoute(p_msg,OutputPort,newRoute);
 
 
-    // Add new Route object to the RoutingTable
+	// Add new Route object to the RoutingTable
 
-    // Check if the RoutingTable is empty
-    if(m_headOfRawTable->next == 0)
-    {
-        // RoutinTable was empty. Add the first item in it. It's also the last item of it.
-        m_headOfRawTable->next = newRoute;
-        m_endOfRawTable = newRoute;
-        newRoute->next = 0;
-    }
-    else
-    {
-        // RoutinTable wasn't empty. Add new Route object in it. Add it to the end.
-        m_endOfRawTable->next = newRoute;
-        m_endOfRawTable = newRoute;
-        newRoute->next = 0;
-    }
+	// Check if the RoutingTable is empty
+	if(m_headOfRawTable->next == 0)
+	{
+		// RoutinTable was empty. Add the first item in it. It's also the last item of it.
+		m_headOfRawTable->next = newRoute;
+		m_endOfRawTable = newRoute;
+		newRoute->next = 0;
+	}
+	else
+	{
+		// RoutinTable wasn't empty. Add new Route object in it. Add it to the end.
+		m_endOfRawTable->next = newRoute;
+		m_endOfRawTable = newRoute;
+		newRoute->next = 0;
+	}
+}
+
+
+void RoutingTable::addASToUpdate(BGPMessage& p_UpdateIn, int p_OutboundInterface)
+{
+
+	m_UpdateOut = p_UpdateIn;
+
+	m_UpdateOut.m_Message +=  "-" + m_RTConfig->getIPMaskAsString();
+	m_UpdateOut.m_OutboundInterface = p_OutboundInterface;
+
 }
 
 /*
     Create a Route object from p_msg. p_msg must be constructed as follows:
     0 or 1,IP,Mask,ASes(e.g. 1,10.255.0.100,8,550-7564-4)
     Parse message and collect IP,Mask,ASes which are separated by ","-mark
-*/
+ */
 void RoutingTable::createRoute(string p_msg,int p_outputPort ,Route * p_route)
 {
-    // Use these to collect data separetad by semicolon
-    int position = 2;
-    int IP_end,Mask_end, ASes_end;
+	// Use these to collect data separetad by semicolon
+	int position = 2;
+	int IP_end,Mask_end, ASes_end;
 
-    for(int i=0;i<3;i++)
-    {
-        position = p_msg.find(",",position+1);
-        if(i==0)
-            IP_end = position;
-        else if(i==1)
-            Mask_end = position;
-        else if(i==2)
-            ASes_end = position;
-    }
+	for(int i=0;i<3;i++)
+	{
+		position = p_msg.find(",",position+1);
+		if(i==0)
+			IP_end = position;
+		else if(i==1)
+			Mask_end = position;
+		else if(i==2)
+			ASes_end = position;
+	}
 
-    string IPAddress = p_msg.substr(2,IP_end-2);
-    string Mask = p_msg.substr((IP_end+1),(Mask_end-IP_end-1));  // -1 to remove ";"-sign
-    string ASes = p_msg.substr((Mask_end+1),(ASes_end-Mask_end-1));
+	string IPAddress = p_msg.substr(2,IP_end-2);
+	string Mask = p_msg.substr((IP_end+1),(Mask_end-IP_end-1));  // -1 to remove ";"-sign
+	string ASes = p_msg.substr((Mask_end+1),(ASes_end-Mask_end-1));
 
-    // Add own AS in AS-path
-    ASes.append("-");
-    stringstream ss;
-    ss << m_RTConfig->getASNumber();
-    ASes.append(ss.str());
+	// Add own AS in AS-path
+	ASes.append("-");
+	stringstream ss;
+	ss << m_RTConfig->getASNumber();
+	ASes.append(ss.str());
 
 
-    // Set the values to Route pointer
-    p_route->prefix = IPAddress;
-    p_route->mask = atoi(Mask.c_str());
-    p_route->ASes = ASes;
-    p_route->OutputPort = p_outputPort;
+	// Set the values to Route pointer
+	p_route->prefix = IPAddress;
+	p_route->mask = atoi(Mask.c_str());
+	p_route->ASes = ASes;
+	p_route->OutputPort = p_outputPort;
+}
+
+/*
+    Create a Route object from p_msg. p_msg must be constructed as follows:
+    0 or 1,IP,Mask,ASes(e.g. 1,10.255.0.100,8,550-7564-4)
+    Parse message and collect IP,Mask,ASes which are separated by ","-mark
+ */
+Route *RoutingTable::createNewRoute(string p_Prefix, string p_Mask, string p_AS ,int p_OutputPort)
+{
+	Route *l_NewRoute = new Route();
+
+	// Set the values to Route pointer
+	l_NewRoute->prefix = p_Prefix;
+	l_NewRoute->mask = atoi(p_Mask.c_str());
+	l_NewRoute->ASes = p_AS;
+	l_NewRoute->OutputPort = p_OutputPort;
+	return l_NewRoute;
 }
 
 /*
     Remove given route from RawRoutingTable
-*/
+ */
 void RoutingTable::removeFromRawTable(int p_routeId)
 {
-    Route * deleteRoute = new Route();
-    Route * tempRoute = new Route();
-    deleteRoute = m_headOfRawTable;
-    while(deleteRoute->next != 0)
-    {
-        tempRoute = deleteRoute;
-        deleteRoute = deleteRoute->next;
-        if(deleteRoute->id == p_routeId)
-        {
-            if(deleteRoute == m_endOfRoutingTable)
-            {
-                m_endOfRoutingTable = tempRoute;
-            }
-            tempRoute->next = deleteRoute->next;
-            return;
-        }
-    }
+	Route * deleteRoute = new Route();
+	Route * tempRoute = new Route();
+	deleteRoute = m_headOfRawTable;
+	while(deleteRoute->next != 0)
+	{
+		tempRoute = deleteRoute;
+		deleteRoute = deleteRoute->next;
+		if(deleteRoute->id == p_routeId)
+		{
+			if(deleteRoute == m_endOfRoutingTable)
+			{
+				m_endOfRoutingTable = tempRoute;
+			}
+			tempRoute->next = deleteRoute->next;
+			return;
+		}
+	}
 }
 
 /*
     Remove given route from MainRoutingTable
-*/
+ */
 void RoutingTable::removeFromRoutingTable(int p_routeId)
 {
-    Route * deleteRoute = new Route();
-    Route * tempRoute = new Route();
-    deleteRoute = m_headOfRoutingTable;
-    while(deleteRoute->next != 0)
-    {
-        tempRoute = deleteRoute;
-        deleteRoute = deleteRoute->next;
-        if(deleteRoute->id == p_routeId)
-        {
-            tempRoute->next = deleteRoute->next;
-            if(deleteRoute == m_endOfRoutingTable)
-            {
-                m_endOfRoutingTable = tempRoute;
-            }
-            return;
-        }
-    }
+	Route * deleteRoute = new Route();
+	Route * tempRoute = new Route();
+	deleteRoute = m_headOfRoutingTable;
+	while(deleteRoute->next != 0)
+	{
+		tempRoute = deleteRoute;
+		deleteRoute = deleteRoute->next;
+		if(deleteRoute->id == p_routeId)
+		{
+			tempRoute->next = deleteRoute->next;
+			if(deleteRoute == m_endOfRoutingTable)
+			{
+				m_endOfRoutingTable = tempRoute;
+			}
+			return;
+		}
+	}
 }
 
 /*
     Remove all Routes from RawRoutingTable and then update MainRoutingTable too(i.e. clear it)
-*/
+ */
 void RoutingTable::clearRoutingTables()
 {
-    if(m_headOfRawTable->next == 0)
-        return;
-    m_iterator = m_headOfRawTable->next;
-    Route * l_deleteRoute = new Route;
+	if(m_headOfRawTable->next == 0)
+		return;
+	m_iterator = m_headOfRawTable->next;
+	Route * l_deleteRoute = new Route;
 
-    while(m_iterator->next != 0)
-    {
-        l_deleteRoute = m_iterator;
-        m_iterator = m_iterator->next;
-        removeFromRawTable(l_deleteRoute->id);
-    }
-    l_deleteRoute = m_iterator;
-    removeFromRawTable(l_deleteRoute->id);
-    updateRoutingTable();
+	while(m_iterator->next != 0)
+	{
+		l_deleteRoute = m_iterator;
+		m_iterator = m_iterator->next;
+		removeFromRawTable(l_deleteRoute->id);
+	}
+	l_deleteRoute = m_iterator;
+	removeFromRawTable(l_deleteRoute->id);
+	updateRoutingTable();
 }
 
 
 /*
     Delete all the routes from RawRoutingTable that have p_outputPort as output port.
     Then update MainRoutingTable if changes were made
-*/
+ */
 void RoutingTable::deleteRoutes(int p_outputPort)
 {
-    m_iterator = m_headOfRawTable;
-    bool routesDeleted = false;
-    while(m_iterator->next != 0)
-    {
-        m_iterator = m_iterator->next;
-        if(m_iterator->OutputPort == p_outputPort)
-        {
-            // Same output port so delete the route from RawTable and send UPDATE-withdraw message to all peers
-            sendWithdraw(*m_iterator);
+	m_iterator = m_headOfRawTable;
+	bool routesDeleted = false;
+	while(m_iterator->next != 0)
+	{
+		m_iterator = m_iterator->next;
+		if(m_iterator->OutputPort == p_outputPort)
+		{
+			// Same output port so delete the route from RawTable and send UPDATE-withdraw message to all peers
+			sendWithdraw(*m_iterator);
 
-            removeFromRawTable(m_iterator->id);
-            routesDeleted = true;
-        }
-    }
-    // If RawTable was modified update MainRoutingTable
-    if(routesDeleted)
-        updateRoutingTable();
+			removeFromRawTable(m_iterator->id);
+			routesDeleted = true;
+		}
+	}
+	// If RawTable was modified update MainRoutingTable
+	if(routesDeleted)
+		updateRoutingTable();
 }
 
 // Handle withdraw-message. Remove given route from RawRoutingTable, update MainRoutingTable and forward this message
 // Withdraw-message syntax: withdraw/ad,prefix,mask,AS-path (i.e. 0,100.200.50.0,16,50-123-321-999)
 void RoutingTable::handleWithdraw(string p_message)
 {
-    /*  First check that own AS is not in AS-path.
+	/*  First check that own AS is not in AS-path.
         If own AS is found from AS-path --> do nothing since the package has made a circle and this router has already handled this packege
-    */
-    stringstream ss;
-    int int_ownAS = m_RTConfig->getASNumber();
+	 */
+	stringstream ss;
+	int int_ownAS = m_RTConfig->getASNumber();
 
-    ss << int_ownAS;
-    string str_ownAS = ss.str();
+	ss << int_ownAS;
+	string str_ownAS = ss.str();
 
-    if(p_message.find(str_ownAS) == string::npos)
-    {
-        // Own AS number was found from AS-path so exit from this method
-        return;
-    }
+	if(p_message.find(str_ownAS) == string::npos)
+	{
+		// Own AS number was found from AS-path so exit from this method
+		return;
+	}
 
-    // Parse message
-    int pos_prefix, pos_mask, pos_ASes;
-    int position = 1;
-    for(int i = 0; i < 3;i++)
-    {
-        position = p_message.find(",",position+1);
+	// Parse message
+	int pos_prefix, pos_mask, pos_ASes;
+	int position = 1;
+	for(int i = 0; i < 3;i++)
+	{
+		position = p_message.find(",",position+1);
 
-        if(i==0)
-            pos_prefix = position;
-        else if(i==1)
-            pos_mask = position;
-        else if(i==2)
-            pos_ASes = position;
-    }
-    string l_prefix = p_message.substr(2,pos_prefix-2);
-    string l_mask = p_message.substr((pos_prefix+1),(pos_mask-pos_prefix-1));  // -1 to remove ","-sign
-    string l_ASpath = p_message.substr((pos_mask+1),(pos_ASes-pos_mask-1));
+		if(i==0)
+			pos_prefix = position;
+		else if(i==1)
+			pos_mask = position;
+		else if(i==2)
+			pos_ASes = position;
+	}
+	string l_prefix = p_message.substr(2,pos_prefix-2);
+	string l_mask = p_message.substr((pos_prefix+1),(pos_mask-pos_prefix-1));  // -1 to remove ","-sign
+	string l_ASpath = p_message.substr((pos_mask+1),(pos_ASes-pos_mask-1));
 
-//    cout << "|Prefix|" << l_prefix << "|Mask|" << l_mask << "|ASes|" << l_ASpath << "|end|" << endl;
+	//    cout << "|Prefix|" << l_prefix << "|Mask|" << l_mask << "|ASes|" << l_ASpath << "|end|" << endl;
 
 
-    ss.str("");
-    Route * l_iterator = new Route;
-    l_iterator = m_headOfRawTable;
-    while(l_iterator->next != 0)
-    {
-        l_iterator = l_iterator->next;
-        ss << l_iterator->mask;
+	ss.str("");
+	Route * l_iterator = new Route;
+	l_iterator = m_headOfRawTable;
+	while(l_iterator->next != 0)
+	{
+		l_iterator = l_iterator->next;
+		ss << l_iterator->mask;
 
-        // Comapre if p_message and current ruote have same prefix,mask and AS-path
-        if(l_iterator->prefix == l_prefix && ss.str() == l_mask && l_iterator->ASes == l_ASpath)
-        {
-            // Same, so remove this route from own RawRoutingTable and send advertise to peers
-            Route * removedRoute = new Route;
-            removedRoute->prefix = l_iterator->prefix;
-            removedRoute->mask = l_iterator->mask;
-            // Clear ss and then read own AS number in there
-            ss.str("");
-            ss << m_RTConfig->getASNumber();
-            removedRoute->ASes = ss.str();   // TODO add own AS to AS-path
-            sendWithdraw(*removedRoute);
+		// Comapre if p_message and current ruote have same prefix,mask and AS-path
+		if(l_iterator->prefix == l_prefix && ss.str() == l_mask && l_iterator->ASes == l_ASpath)
+		{
+			// Same, so remove this route from own RawRoutingTable and send advertise to peers
+			Route * removedRoute = new Route;
+			removedRoute->prefix = l_iterator->prefix;
+			removedRoute->mask = l_iterator->mask;
+			// Clear ss and then read own AS number in there
+			ss.str("");
+			ss << m_RTConfig->getASNumber();
+			removedRoute->ASes = ss.str();   // TODO add own AS to AS-path
+			sendWithdraw(*removedRoute);
 
-            // Now remove this route from RawRoutingTable
-            removeFromRawTable(l_iterator->id);
-        }
-        ss.str("");
-    }
+			// Now remove this route from RawRoutingTable
+			removeFromRawTable(l_iterator->id);
+		}
+		ss.str("");
+	}
 
 
 }
 // Send withdraw-message to all peers
 void RoutingTable::sendWithdraw(Route p_route)
 {
-    stringstream ss;
-    p_route.ASes = "";
+	stringstream ss;
+	p_route.ASes = "";
 
-    // Construct the message here
+	// Construct the message here
 
-    // This is withdraw-message so it begins with "0"
-    string l_message = "0,";
-    l_message.append(p_route.prefix);
-    l_message.append(",");
-    ss << p_route.mask;
-    l_message.append(ss.str());
-    l_message.append(",");
-    // TODO add peer router and own router
+	// This is withdraw-message so it begins with "0"
+	string l_message = "0,";
+	l_message.append(p_route.prefix);
+	l_message.append(",");
+	ss << p_route.mask;
+	l_message.append(ss.str());
+	l_message.append(",");
+	// TODO add peer router and own router
 
-    ss.str("");
-    ss << m_RTConfig->getASNumber();
-    l_message.append(ss.str());
+	ss.str("");
+	ss << m_RTConfig->getASNumber();
+	l_message.append(ss.str());
 
 
-    // Create new BGPMessage
-    BGPMessage * l_msg = new BGPMessage;
-    l_msg->m_Type = UPDATE;
-    l_msg->m_Message = l_message;
+	// Create new BGPMessage
+	BGPMessage * l_msg = new BGPMessage;
+	l_msg->m_Type = UPDATE;
+	l_msg->m_Message = l_message;
 
-    // Send the message
-    port_Output->write(*l_msg);
+	// Send the message
+	port_Output->write(*l_msg);
+	delete l_msg;
 }
 
 void RoutingTable::handleNotification(BGPMessage p_msg)
 {
+
+	//TODO: start sending updates to withdraw the routes that were behind the killed session
 }
 
 /*
     Find Route object from RoutingTable by given IPAddress.
     Iterate through the RoutingTable and find the longest match with the given IPAddress.
     Then return pointer to the Route object that had the longest match
-*/
+ */
 Route * RoutingTable::findRoute(string p_prefix)
 {
-    Route * l_route = new Route();
-    int l_longestMatch = 0;
-    int l_matchLength;
-    m_iterator = m_headOfRoutingTable;
+	Route * l_route = new Route();
+	int l_longestMatch = 0;
+	int l_matchLength;
+	m_iterator = m_headOfRoutingTable;
 
-    while(m_iterator->next != 0)
-    {
-        m_iterator = m_iterator->next;
-        l_matchLength = matchLength(m_iterator, p_prefix);
-        // if new match is longer than current longest match, set it as new longest match
-        if(l_matchLength >= l_longestMatch)
-        {
-            l_longestMatch = l_matchLength;
-            l_route = m_iterator;
-        }
-    }
-    return l_route;
+	while(m_iterator->next != 0)
+	{
+		m_iterator = m_iterator->next;
+		l_matchLength = matchLength(m_iterator, p_prefix);
+		// if new match is longer than current longest match, set it as new longest match
+		if(l_matchLength >= l_longestMatch)
+		{
+			l_longestMatch = l_matchLength;
+			l_route = m_iterator;
+		}
+	}
+	return l_route;
+}
+/*
+    Find Route object from RoutingTable by given IPAddress.
+    Iterate through the RoutingTable and find the longest match with the given IPAddress.
+    Then return pointer to the Route object that had the longest match
+ */
+void RoutingTable::newSession(int p_PeeringInterface)
+{
+
+	m_iterator = m_headOfRoutingTable;
+
+	//advertise all the routes of other interfaces than the peering interface to the new session
+	while(m_iterator->next != 0)
+	{
+		if(p_PeeringInterface != m_iterator->OutputPort)
+		{
+			advertiseRoute(m_iterator, p_PeeringInterface);
+		}
+		m_iterator = m_iterator->next;
+	}
+
 }
 
 // Return how many "bits" from prefix match with IP address.
 int RoutingTable::matchLength(Route * p_route, string p_IP)
 {
-    int matchLength = 0;
-    string routePrefix = p_route->prefix;
-    for(unsigned i = 0; i < p_IP.size();i++)
-    {
+	int matchLength = 0;
+	string routePrefix = p_route->prefix;
+	for(unsigned i = 0; i < p_IP.size();i++)
+	{
 
-        if(p_IP.at(i) == routePrefix.at(i))
-            matchLength++;
-        else
-            break;
-    }
-    return matchLength;
+		if(p_IP.at(i) == routePrefix.at(i))
+			matchLength++;
+		else
+			break;
+	}
+	return matchLength;
 
 }
 
 /*
     Take ip address as a parameter and return the outputport.
     DataPlane uses this function to find out where to forward its packets.
-*/
+ */
 int RoutingTable::resolveRoute(string p_IPAddress)
 {
-    SC_REPORT_INFO(g_DebugID, StringTools(name()).appendReportString("resolveRoute-method was called.") );
-    Route * foundRoute = findRoute(p_IPAddress);
-    return foundRoute->OutputPort;
+	SC_REPORT_INFO(g_DebugID, StringTools(name()).appendReportString("resolveRoute-method was called.") );
+	Route * foundRoute = findRoute(p_IPAddress);
+	return foundRoute->OutputPort;
 }
 
 // Add new AS to the preferred ASes vector
 void RoutingTable::setLocalPreference(int p_AS, int p_preferenceValue)
 {
-    preferredASes.push_back(p_AS);
-    preferredASes.push_back(p_preferenceValue);
+	preferredASes.push_back(p_AS);
+	preferredASes.push_back(p_preferenceValue);
 }
 
 void RoutingTable::removeLocalPref(int p_AS)
 {
-    // Find given AS
-    for(unsigned i = 0; i < preferredASes.size();i++)
-    {
-        if(p_AS == preferredASes.at(i))
-        {
-            // AS found, remove that and its preference value
-            preferredASes.erase(preferredASes.begin() + i);
-            preferredASes.erase(preferredASes.begin()+ i+1);
-        }
+	// Find given AS
+	for(unsigned i = 0; i < preferredASes.size();i++)
+	{
+		if(p_AS == preferredASes.at(i))
+		{
+			// AS found, remove that and its preference value
+			preferredASes.erase(preferredASes.begin() + i);
+			preferredASes.erase(preferredASes.begin()+ i+1);
+		}
 
-    }
+	}
 }
 
 // Advertise this route to peers
-void RoutingTable::advertiseRoute(Route * p_route)
+void RoutingTable::advertiseRoute(Route *p_route, int p_PeeringInterface)
 {
+
+	m_UpdateOut.m_Type = UPDATE;
+	m_UpdateOut.m_BGPIdentifier = m_RTConfig->getBGPIdentifier();
+	m_UpdateOut.m_OutboundInterface = p_PeeringInterface;
+	m_UpdateOut.m_Message = routeToUpdate(*p_route);
+	port_Output->write(m_UpdateOut);
 
 }
 
 
 /*
     only for testing?
-*/
+ */
 int RoutingTable::tableLength()
 {
-    int length = 0;
-    Route * l_iterator = new Route;
-    l_iterator = m_headOfRoutingTable;
-    while(l_iterator->next!=0)
-    {
-        length++;
-        l_iterator = l_iterator->next;
-    }
-    return length;
+	int length = 0;
+	Route * l_iterator = new Route;
+	l_iterator = m_headOfRoutingTable;
+	while(l_iterator->next!=0)
+	{
+		length++;
+		l_iterator = l_iterator->next;
+	}
+	return length;
 }
 
 // IIRO for testing. FIll routing table and add some preferred ASes
 void RoutingTable::fillRoutingTable()
 {
-    // ADD some preferred ASes to preferredASes
+	// ADD some preferred ASes to preferredASes
 
 
 
-    // Create random numbers for BGP-message
-    string prefix;
+	// Create random numbers for BGP-message
+	string prefix;
 
-    int prefix1;
-    int prefix2;
-    int prefix3;
-    int prefix4;
+	int prefix1;
+	int prefix2;
+	int prefix3;
+	int prefix4;
 
-    int mask;
-    int OutputPort;
+	int mask;
+	int OutputPort;
 
-    int AS1;
-    int AS2;
-    int AS3;
-    string ASes;
-    stringstream ss;
-    string l_message;
-    srand(time(NULL));
+	int AS1;
+	int AS2;
+	int AS3;
+	string ASes;
+	stringstream ss;
+	string l_message;
+	srand(time(NULL));
 
-    for(int i=0;i<4;i++)
-    {
-        ss.str("");
-        prefix1 = 1+(rand()%255);
-        prefix2 = 1+(rand()%255);
-        prefix3 = 1+(rand()%255);
-        prefix4 = 0;//1+(rand()%255);
-        ss << prefix1 << "." << prefix2 << "." << prefix3 << "." << prefix4;
-        prefix = ss.str();
-        ss.str("");
+	for(int i=0;i<4;i++)
+	{
+		ss.str("");
+		prefix1 = 1+(rand()%255);
+		prefix2 = 1+(rand()%255);
+		prefix3 = 1+(rand()%255);
+		prefix4 = 0;//1+(rand()%255);
+		ss << prefix1 << "." << prefix2 << "." << prefix3 << "." << prefix4;
+		prefix = ss.str();
+		ss.str("");
 
-        AS1 = 1+(rand()%5000);
-        AS2 = 1+(rand()%5000);
-        AS3 = 1+(rand()%5000);
-        ss << AS1 << "-" << AS2 << "-" << AS3;
-        ASes = ss.str();
-        ss.str("");
+		AS1 = 1+(rand()%5000);
+		AS2 = 1+(rand()%5000);
+		AS3 = 1+(rand()%5000);
+		ss << AS1 << "-" << AS2 << "-" << AS3;
+		ASes = ss.str();
+		ss.str("");
 
-        mask = 1+(rand()%8);
-        OutputPort = 1+(rand()%20);
+		mask = 1+(rand()%8);
+		OutputPort = 1+(rand()%20);
 
 
-        if(i==1)
-        {
-            prefix = "50.40.200.0";
-            ASes = "50-70-100";
-            mask = 2;
-            OutputPort = 10;
-        }
-        int withdrawOrAd = 0;
+		if(i==1)
+		{
+			prefix = "50.40.200.0";
+			ASes = "50-70-100";
+			mask = 2;
+			OutputPort = 10;
+		}
+		int withdrawOrAd = 0;
 
-        ss << withdrawOrAd << "," << prefix << "," << mask << "," << ASes;
-        l_message = ss.str();
+		ss << withdrawOrAd << "," << prefix << "," << mask << "," << ASes;
+		l_message = ss.str();
 
-        addRouteToRawTable(l_message,OutputPort);
-        addRouteToRawTable(l_message,OutputPort);
+		addRouteToRawTable(l_message,OutputPort);
+		//addRouteToRawTable(l_message,OutputPort);
 
-    }
+	}
 
 }
 

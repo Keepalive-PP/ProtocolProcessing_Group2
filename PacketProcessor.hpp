@@ -125,7 +125,7 @@ public:
      * \return bool true: packet is ready to be forwarded - false: packet was dropped
      * \public
      */
-    bool forward(Packet& p_Frame);
+    bool forward(Packet *p_Frame);
     
 private:
 

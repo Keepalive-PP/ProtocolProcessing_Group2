@@ -395,6 +395,7 @@ void BGPSession::fsmRoutine(void)
 						//transition to IDLE state in case of notification
 						else if(m_BGPIn.m_Type == NOTIFICATION)
 						{
+							port_ToRoutingTable->write(m_BGPIn);
 							setBGPCurrentState(IDLE);
 						}
 						//in any other case send a notificaton to the peer and transition to the IDLE state

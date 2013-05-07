@@ -62,8 +62,7 @@ public:
     /*! \brief Output port for BGP messages
      * \details The RoutingTable writes all the BGP messages to be send
      * to its neighbors into
-     * this port. The port should be bind to the Data Plane's.
-     * receiving FIFO
+     * this port. The port should be bind to the Control Plane
      * \public
      */
     sc_port<Output_If> port_Output;
@@ -158,16 +157,22 @@ private:
     sc_fifo<BGPMessage> m_ReceivingBuffer;
 
     // Advertise this route to peers
-    void advertiseRoute(Route * p_route);
+    void advertiseRoute(Route *p_route, int p_PeeringInterface);
+
 
     // Construct new route from p_msg.
     void createRoute(string p_msg,int p_outputPort, Route * p_route);
+
+    // Construct new route from the given arguments.
+    Route *createNewRoute(string p_Prefix, string p_Mask, string p_AS ,int p_OutputPort);
 
     // Handle NOTIFICATION message type
     void handleNotification (BGPMessage NOTIFICATION_message);
 
     // Return Route which prefix is p_prefix
     Route * findRoute(string p_prefix);
+
+    void newSession(int p_PeeringInterface);
 
     // Return how many bits are the same from p_route and p_IP. Used for deciding which route to use
     int matchLength(Route * p_route, string p_IP);
@@ -196,6 +201,8 @@ private:
     // Convert p_route to string. Syntax: ID,Prefix,Mask,Routers,ASes (e.g. 5,100100200050,8,2-4-6-7,100-4212-231-22)
     string routeToString(Route p_route);
 
+    string routeToUpdate(Route p_route);
+
     // Convert the hole RoutingTable to string. Start from p_route
     string routingTableToString(Route * p_route);
 
@@ -210,6 +217,9 @@ private:
 
     // Return the length of the table
     int tableLength();
+
+
+    void addASToUpdate(BGPMessage& p_UpdateIn, int p_OutboundInterface);
 
 
     // Just for testing?
@@ -257,6 +267,10 @@ private:
     //  * \public
     //  */
     // bool updateRoute(void);
+
+    bool m_NewInputMsg;
+
+    BGPMessage m_UpdateOut;
 
 
 
