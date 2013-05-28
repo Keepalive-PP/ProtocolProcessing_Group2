@@ -40,6 +40,32 @@ When user has defined the desired simulation options, simulation can be started 
  * \subsection sub_futureImprovements Future Improvements
  * Some of the basic functionality such as withdrawing a route and avoiding routing loops was not successfully simulated due to some bugs in the RT module. The simulation of the previously mentioned functions of BGP would require a thorough debugging of RT and perhaps a redesign of some of its components. In addition, implementing some experimental BGP functionalites such as security improvments would be interesting to simulate in the future.
  * \subsection sub_whatwelearned What We Learned
+The goal of this project was to study BGP-protocol and its functions
+as an inter domain routing protocol of the Internet. The method was to
+build software that simulates those BGP functions. We spent several
+weeks for researching BPG-protocol standards and identifying the
+required aspects for building a working BGP-simulator. As an outcome of
+the researching process, we gained a strong knowledge of network
+protocols in general, as well as how those different protocols
+intervene in currently used BGP-networks. In addition, we adopted a
+strong knowledge on router architectures and configurations, and  in IP-packet processing on the network layer (bit level
+processing). The information extracted during the research phase was
+put directly into the use in the BGP-simulator's design phase. We had
+to define the datatypes, classes and logic to store, transfer, and process all the
+data on BGP-simulator. Furthermore, we had to build a working and usable
+user interface for users to configure and control the simulation.
+
+All in all, this project provided a perfect way to get at the deep end
+of BGP-protocol and Internet routing on BGP-level. Although it took relatively
+long time to get the simulation software finished and running, we
+think that there is no better way to gain as strong practical
+knowledge on the network protocols and protocol processing
+as we have been able to do during this project. This extremely
+interesting project has been an outstanding learning experience and
+will for sure give us strength and motivation for our future
+projects. We also have a strong will to continue the development of
+the BGP-simulator in the direction mentioned in the previous chapter.
+
  */
 
 
