@@ -8,8 +8,8 @@
 
 /*!
  * \mainpage BGP Simulator
- * \authors \li Antti Siirilä, 501449, anjosi@utu.fi \li Heikki Juva \li Iiro Räsänen
- * \date 13.5.2013
+ * \authors \li Antti Siirilä, 501449, anjosi@utu.fi \li Heikki Juva, 76718, juva.hj@gmail.com \li Iiro Räsänen, 78366, imrasa@utu.fi
+ * \date 29.5.2013
  * \section s_intro Introduction
  * BGP is a vital part of the Internet providing routing services between autonomous system. The goal of this projecs was to get familiar with the BGP protocol through a programming project. The programming projects contained the design and implementation of a BGP simulator. The design contains two main components the Simulation and the User Interface (UI). The implementation of the Simulation bases on SystemC where as the UI was implemeted with Python. 
  * \section s_design Design
@@ -35,6 +35,26 @@ The Simulation UI-library defines two types of classes, UI- and Data-classes. UI
 Because the simulation has to be widely configurable and at the same time user need information about all of the aspects of simulation, such as routers, packets, network and routing tables, we decided to use console-type input system to setup the simulation and control simulation when running. Most of the advanced configs about routers and connections are available from console, such as setting router prefix. More simple things, such as creating routers and connecting routers together can be done with mouse. You can check available console commands by typing command "help" inside console.
 
 When user has defined the desired simulation options, simulation can be started by clicking "Start". This sends the configuration to SystemC-simulation by socket-connection and starts updating the routing tables. Now user can send packets between routers, disable connections from console and follow the structure of routing tables when modifying the network topology.
+* \section s_HowTo How To
+* \subsection sub_Prep Preparations
+
+1. systemC 2.3.0 library installed for Simulation
+2. python and pygame for UI
+
+* \subsection sub_Compile Compilation
+
+1. Define a name for your executable (EXE), your systemC path (SYSTEMC) and your architecture (T_ARCH) in the makefile, and save.
+2. Make
+
+* \subsection sub_Run Execute
+
+1. Start the Simulation first by running the executable
+2. Navigate to the UI folder and run "python SimulationUI.py"
+3. Add and configure the routers
+4. Connect the routers
+5. click start to launch the simulation
+6. type help to see the router commands and their options
+
  * \section s_conclusion Conclusion
  * In this programming exercise, a BGP network simulator was designed, and implemented using Python and SystemC. The BGP cold start and table update processes were successfully simulated for start topologies. The IP packet processesing was implemented on bitlevel as specified in RFC 1812. The IP packet routing was also simulated by sending test packets between ASes.
  * \subsection sub_futureImprovements Future Improvements

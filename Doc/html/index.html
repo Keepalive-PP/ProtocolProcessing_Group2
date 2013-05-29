@@ -83,11 +83,11 @@ var searchBox = new SearchBox("searchBox", "search",false,'Search');
 <div class="contents">
 <div class="textblock"><dl class="section author"><dt>Authors</dt><dd><ul>
 <li>Antti Siirilä, 501449, <a href="#" onclick="location.href='mai'+'lto:'+'anj'+'os'+'i@u'+'tu'+'.fi'; return false;">anjos<span style="display: none;">.nosp@m.</span>i@ut<span style="display: none;">.nosp@m.</span>u.fi</a></li>
-<li>Heikki Juva</li>
-<li>Iiro Räsänen </li>
+<li>Heikki Juva, 76718, <a href="#" onclick="location.href='mai'+'lto:'+'juv'+'a.'+'hj@'+'gm'+'ail'+'.c'+'om'; return false;">juva.<span style="display: none;">.nosp@m.</span>hj@g<span style="display: none;">.nosp@m.</span>mail.<span style="display: none;">.nosp@m.</span>com</a></li>
+<li>Iiro Räsänen, 78366, <a href="#" onclick="location.href='mai'+'lto:'+'imr'+'as'+'a@u'+'tu'+'.fi'; return false;">imras<span style="display: none;">.nosp@m.</span>a@ut<span style="display: none;">.nosp@m.</span>u.fi</a> </li>
 </ul>
 </dd></dl>
-<dl class="section date"><dt>Date</dt><dd>13.5.2013 </dd></dl>
+<dl class="section date"><dt>Date</dt><dd>29.5.2013 </dd></dl>
 <h1><a class="anchor" id="s_intro"></a>
 Introduction</h1>
 <p>BGP is a vital part of the Internet providing routing services between autonomous system. The goal of this projecs was to get familiar with the BGP protocol through a programming project. The programming projects contained the design and implementation of a BGP simulator. The design contains two main components the <a class="el" href="classSimulation.html" title="Simulation top module.">Simulation</a> and the User <a class="el" href="classInterface.html" title="Interface module inside a Router module.">Interface</a> (<a class="el" href="namespaceUI.html">UI</a>). The implementation of the <a class="el" href="classSimulation.html" title="Simulation top module.">Simulation</a> bases on SystemC where as the <a class="el" href="namespaceUI.html">UI</a> was implemeted with Python. </p>
@@ -118,6 +118,30 @@ User Interface</h2>
 <p>The <a class="el" href="classSimulation.html" title="Simulation top module.">Simulation</a> UI-library defines two types of classes, UI- and Data-classes. UI-class defines strictly UI-related class, for example the RouterModel-class that is used to represent selected router and displays information about the given router. Data-classes are defined in <a class="el" href="classSimulation.html" title="Simulation top module.">Simulation</a> <a class="el" href="namespaceUI.html">UI</a> to represent the objects in SystemC-simulation. This makes it simple to create simulation objects, such as Routers, Interfaces and so on in <a class="el" href="classSimulation.html" title="Simulation top module.">Simulation</a> <a class="el" href="namespaceUI.html">UI</a> before the SystemC-simulation is started. After the SystemC simulation is started, <a class="el" href="classSimulation.html" title="Simulation top module.">Simulation</a> <a class="el" href="namespaceUI.html">UI</a> objects are periodically synced using the socket-connection. Good example of this is the routing tables, that are read from router in SystemC simulation and given for corresponding <a class="el" href="classSimulation.html" title="Simulation top module.">Simulation</a> <a class="el" href="namespaceUI.html">UI</a> router. Then the selectdialogs in <a class="el" href="classSimulation.html" title="Simulation top module.">Simulation</a> <a class="el" href="namespaceUI.html">UI</a> read the tables from objects defined in Python.</p>
 <p>Because the simulation has to be widely configurable and at the same time user need information about all of the aspects of simulation, such as routers, packets, network and routing tables, we decided to use console-type input system to setup the simulation and control simulation when running. Most of the advanced configs about routers and connections are available from console, such as setting router prefix. More simple things, such as creating routers and connecting routers together can be done with mouse. You can check available console commands by typing command "help" inside console.</p>
 <p>When user has defined the desired simulation options, simulation can be started by clicking "Start". This sends the configuration to SystemC-simulation by socket-connection and starts updating the routing tables. Now user can send packets between routers, disable connections from console and follow the structure of routing tables when modifying the network topology. </p>
+<h1><a class="anchor" id="s_HowTo"></a>
+How To</h1>
+<h2><a class="anchor" id="sub_Prep"></a>
+Preparations</h2>
+<ol type="1">
+<li>systemC 2.3.0 library installed for <a class="el" href="classSimulation.html" title="Simulation top module.">Simulation</a></li>
+<li>python and pygame for <a class="el" href="namespaceUI.html">UI</a></li>
+</ol>
+<h2><a class="anchor" id="sub_Compile"></a>
+Compilation</h2>
+<ol type="1">
+<li>Define a name for your executable (EXE), your systemC path (SYSTEMC) and your architecture (T_ARCH) in the makefile, and save.</li>
+<li>Make</li>
+</ol>
+<h2><a class="anchor" id="sub_Run"></a>
+Execute</h2>
+<ol type="1">
+<li>Start the <a class="el" href="classSimulation.html" title="Simulation top module.">Simulation</a> first by running the executable</li>
+<li>Navigate to the <a class="el" href="namespaceUI.html">UI</a> folder and run "python SimulationUI.py"</li>
+<li>Add and configure the routers</li>
+<li>Connect the routers</li>
+<li>click start to launch the simulation</li>
+<li>type help to see the router commands and their options</li>
+</ol>
 <h1><a class="anchor" id="s_conclusion"></a>
 Conclusion</h1>
 <p>In this programming exercise, a BGP network simulator was designed, and implemented using Python and SystemC. The BGP cold start and table update processes were successfully simulated for start topologies. The IP packet processesing was implemented on bitlevel as specified in RFC 1812. The IP packet routing was also simulated by sending test packets between ASes. </p>
@@ -131,7 +155,7 @@ What We Learned</h2>
 </div></div><!-- contents -->
 <!-- start footer part -->
 <hr class="footer"/><address class="footer"><small>
-Generated on Tue May 28 2013 23:51:23 for BGP Simulator by &#160;<a href="http://www.doxygen.org/index.html">
+Generated on Wed May 29 2013 21:03:45 for BGP Simulator by &#160;<a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/>
 </a> 1.8.3.1
 </small></address>
